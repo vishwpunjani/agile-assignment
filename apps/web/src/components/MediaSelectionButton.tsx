@@ -101,82 +101,46 @@ export default function MediaSelectionButton({ onFileSelected }: MediaSelectionB
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "8px", width: "100%" }}>
-
-      {/* Chips shown above inside the bar */}
+    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
       {selectedFiles.length > 0 && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", paddingLeft: "4px" }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
           {selectedFiles.map((sf, i) => (
             <div key={i} className="media-chip">
               <span className="media-chip-icon">
                 {MEDIA_OPTIONS.find((o) => o.type === sf.type)?.icon}
               </span>
               <span className="media-chip-name">{sf.file.name}</span>
-              <button
-                className="media-chip-remove"
-                onClick={() => removeFile(i)}
-                aria-label={`Remove ${sf.file.name}`}
-              >
-                ×
-              </button>
+              <button className="media-chip-remove" onClick={() => removeFile(i)}>×</button>
             </div>
           ))}
         </div>
       )}
 
-      {/* Bottom row: + button + input */}
-      <div style={{ display: "flex", alignItems: "center", gap: "8px", width: "100%" }}>
-        <div className="media-dropdown-container">
-          <button
-            className="media-selection-btn-plus"
-            onClick={() => setOpen((v) => !v)}
-            aria-haspopup="listbox"
-            aria-expanded={open}
-            aria-label="Attach media"
-          >
-            +
-          </button>
+      <div className="media-dropdown-container">
+        <button
+          className="media-selection-btn-plus"
+          onClick={() => setOpen((v) => !v)}
+          aria-label="Attach media"
+        >
+          +
+        </button>
 
-          {open && (
-            <>
-              <div className="media-backdrop" onClick={() => setOpen(false)} />
-              <ul className="media-dropdown" role="listbox" aria-label="Select media type">
-                {MEDIA_OPTIONS.map((option) => (
-                  <li
-                    key={option.type}
-                    role="option"
-                    className="media-dropdown-item"
-                    onClick={() => handleOptionClick(option)}
-                  >
-                    <span className="media-item-icon">{option.icon}</span>
-                    <span>{option.label}</span>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-        </div>
-
-        <input
-          type="text"
-          placeholder="Start asking..."
-          style={{
-            flex: 1,
-            border: "none",
-            outline: "none",
-            fontSize: "15px",
-            background: "transparent",
-            color: "#374151",
-          }}
-        />
+        {open && (
+          <>
+            <div className="media-backdrop" onClick={() => setOpen(false)} />
+            <ul className="media-dropdown" role="listbox">
+              {MEDIA_OPTIONS.map((option) => (
+                <li key={option.type} role="option" className="media-dropdown-item" onClick={() => handleOptionClick(option)}>
+                  <span className="media-item-icon">{option.icon}</span>
+                  <span>{option.label}</span>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
       </div>
 
-      <input
-        ref={fileInputRef}
-        type="file"
-        style={{ display: "none" }}
-        onChange={handleFileChange}
-      />
+      <input ref={fileInputRef} type="file" style={{ display: "none" }} onChange={handleFileChange} />
     </div>
   );
 }
