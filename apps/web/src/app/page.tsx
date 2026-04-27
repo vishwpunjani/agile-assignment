@@ -1,13 +1,17 @@
 'use client';
 
-import { useState } from 'react';
+import type { DragEvent } from "react";
+import { useState } from "react";
 import MediaSelectionButton from "@/components/MediaSelectionButton";
+import CopyTextButton from "@/components/CopyTextButton";
+
+const LLM_OUTPUT_TEXT = "LLM OUTPUT DATA";
 
 export default function Home() {
   const [isDragging, setIsDragging] = useState(false);
   const [dragCounter, setDragCounter] = useState(0);
 
-  const handleDragEnter = (e) => {
+  const handleDragEnter = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setDragCounter(prev => prev + 1);
     if (dragCounter === 0) {
@@ -15,7 +19,7 @@ export default function Home() {
     }
   };
 
-  const handleDragLeave = (e) => {
+  const handleDragLeave = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setDragCounter(prev => prev - 1);
     if (dragCounter - 1 === 0) {
@@ -23,15 +27,17 @@ export default function Home() {
     }
   };
 
-  const handleDragOver = (e) => {
+  const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
   };
 
-  const handleDrop = (e) => {
+  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDragging(false);
     setDragCounter(0);
+
     const files = Array.from(e.dataTransfer.files);
+
     const validTypes = [
       'application/pdf',
       'text/plain',
@@ -43,9 +49,10 @@ export default function Home() {
       'image/bmp',
       'image/tiff'
     ];
-    const invalidFiles = files.filter(file => !validTypes.includes(file.type));
+    const invalidFiles = files.filter((file) => !validTypes.includes(file.type));
+
     if (invalidFiles.length > 0) {
-      alert(`Some files are not valid. Valid formats: docx, pdf, txt, img. Invalid files: ${invalidFiles.map(f => f.name).join(', ')}`);
+      alert(`Some files are not valid. Valid formats: docx, pdf, txt, img. Invalid files: ${invalidFiles.map((file) => file.name).join(', ')}`);
     } else {
       alert('Files dropped successfully');
     }
@@ -57,11 +64,13 @@ export default function Home() {
         minHeight: '100vh',
         width: '100%',
         display: 'flex',
+        flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
         fontFamily: 'system-ui, sans-serif',
         padding: '24px',
-        backgroundColor: '#f8fafc'
+        backgroundColor: '#f8fafc',
+        gap: '20px'
       }}
     >
       <div
@@ -109,22 +118,33 @@ export default function Home() {
             Drop files now
           </div>
         )}
-      <div style={{ width: "100%", maxWidth: "700px" }}>
+      </div>
+
+      <div style={{ width: "100%", maxWidth: "700px", display: "flex", justifyContent: "center" }}>
         <div
           style={{
             display: "flex",
             alignItems: "center",
-            gap: "8px",
+            gap: "12px",
             padding: "12px 16px",
             border: "1.5px solid #e5e7eb",
             borderRadius: "999px",
-            width: "100%",
+            width: "fit-content",
             background: "#fff",
             boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
           }}
         >
           <MediaSelectionButton />
         </div>
+      </div>
+      <div style={{
+        width: "100%",
+        maxWidth: "250px",
+        marginTop: "2px",
+        display: "flex",
+        justifyContent: "center"
+      }}>
+        <CopyTextButton textToCopy={LLM_OUTPUT_TEXT} />
       </div>
     </main>
   );
