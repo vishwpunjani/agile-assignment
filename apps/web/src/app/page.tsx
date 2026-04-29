@@ -1,15 +1,76 @@
 'use client';
 
 import type { DragEvent } from "react";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import CopyTextButton from "@/components/CopyTextButton";
 import MessageInput from "@/components/MessageInput";
 
 const LLM_OUTPUT_TEXT = "LLM OUTPUT DATA";
+const backendBaseUrl = "http://localhost:8000";
 
 export default function Home() {
   const [isDragging, setIsDragging] = useState(false);
   const [dragCounter, setDragCounter] = useState(0);
+  const [lastQuery, setLastQuery] = useState<string | null>(null);
+  const [isRetrying, setIsRetrying] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [statusVariant, setStatusVariant] = useState<"info" | "success" | "error">("info");
+
+  const sendQuery = useCallback(async (query: string, mode: "send" | "retry") => {
+    setIsRetrying(mode === "retry");
+    setIsSending(true);
+    setStatusVariant("info");
+    setStatusMessage(mode === "retry" ? "Retrying your previous query…" : "Processing your message…");
+
+    try {
+      const response = await fetch(`${backendBaseUrl}/query`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        const message = response.status === 501
+          ? "This endpoint is not implemented yet."
+          : `${response.status} ${response.statusText}`;
+        throw new Error(errorText || message);
+      }
+
+      setStatusVariant("success");
+      setStatusMessage("The query was resent successfully.");
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "Unknown error.";
+      setStatusVariant("error");
+      setStatusMessage(`Unable to resend the last query. ${detail}`);
+    } finally {
+      setIsRetrying(false);
+      setIsSending(false);
+    }
+  }, []);
+
+  const handleMessageSent = useCallback((event: Event) => {
+    const detail = (event as CustomEvent<string>).detail;
+    if (!detail) return;
+
+    setLastQuery(detail);
+    setStatusVariant("info");
+    setStatusMessage("Processing your message…");
+    void sendQuery(detail, "send");
+  }, [sendQuery]);
+
+  useEffect(() => {
+    window.addEventListener("messageSent", handleMessageSent as EventListener);
+    return () => {
+      window.removeEventListener("messageSent", handleMessageSent as EventListener);
+    };
+  }, [handleMessageSent]);
+
+  const handleRetry = useCallback(() => {
+    if (!lastQuery || isRetrying || isSending) return;
+    void sendQuery(lastQuery, "retry");
+  }, [isRetrying, isSending, lastQuery, sendQuery]);
 
   const handleDragEnter = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -77,7 +138,17 @@ export default function Home() {
         )}
       </section>
 
-      <MessageInput />
+      <MessageInput
+        canRetry={Boolean(lastQuery)}
+        isRetrying={isRetrying}
+        onRetry={handleRetry}
+      />
+
+      {statusMessage ? (
+        <p className={`status-text ${statusVariant}`} role="status">
+          {statusMessage}
+        </p>
+      ) : null}
 
       <div className="copy-button-wrapper">
         <CopyTextButton textToCopy={LLM_OUTPUT_TEXT} />

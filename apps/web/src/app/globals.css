@@ -142,6 +142,89 @@ body {
   opacity: 0.5;
 }
 
+.retry-btn {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #3730a3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+}
+
+.retry-btn:hover:not(:disabled) {
+  background: #e0e7ff;
+}
+
+.retry-btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.retry-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.retry-btn::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  top: -34px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #0f172a;
+  color: #fff;
+  font-size: 0.72rem;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.retry-btn:hover::after,
+.retry-btn:focus-visible::after {
+  opacity: 1;
+}
+
+.retry-btn.busy {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.status-text {
+  width: min(100%, 700px);
+  color: #475569;
+  font-size: 0.9rem;
+  padding: 0 16px;
+  text-align: center;
+}
+
+.status-text.success {
+  color: #166534;
+}
+
+.status-text.error {
+  color: #991b1b;
+}
+
+.status-text.info {
+  color: #475569;
+}
+
 .mic-btn.recording {
   background: #fee2e2;
   color: #b91c1c;
