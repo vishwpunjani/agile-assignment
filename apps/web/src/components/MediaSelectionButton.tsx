@@ -1,5 +1,6 @@
 "use client";
 
+import type { ChangeEvent, ReactNode } from "react";
 import { useRef, useState } from "react";
 
 type MediaType = "image" | "document" | "audio" | "video";
@@ -8,7 +9,7 @@ interface MediaOption {
   type: MediaType;
   label: string;
   accept: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
 }
 
 const MEDIA_OPTIONS: MediaOption[] = [
@@ -87,7 +88,7 @@ export default function MediaSelectionButton({ onFileSelected }: MediaSelectionB
     }
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !currentTypeRef.current) return;
     const selected: SelectedFile = { type: currentTypeRef.current.type, file };
@@ -101,16 +102,22 @@ export default function MediaSelectionButton({ onFileSelected }: MediaSelectionB
   };
 
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+    <div className="media-selection-wrapper">
       {selectedFiles.length > 0 && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+        <div className="media-chips" aria-label="Attached files">
           {selectedFiles.map((sf, i) => (
             <div key={i} className="media-chip">
               <span className="media-chip-icon">
                 {MEDIA_OPTIONS.find((o) => o.type === sf.type)?.icon}
               </span>
               <span className="media-chip-name">{sf.file.name}</span>
-              <button className="media-chip-remove" onClick={() => removeFile(i)}>×</button>
+              <button
+                className="media-chip-remove"
+                onClick={() => removeFile(i)}
+                aria-label={`Remove ${sf.file.name}`}
+              >
+                x
+              </button>
             </div>
           ))}
         </div>
@@ -118,9 +125,13 @@ export default function MediaSelectionButton({ onFileSelected }: MediaSelectionB
 
       <div className="media-dropdown-container">
         <button
+          type="button"
           className="media-selection-btn-plus"
           onClick={() => setOpen((v) => !v)}
+          aria-haspopup="listbox"
+          aria-expanded={open}
           aria-label="Attach media"
+          title="Attach media"
         >
           +
         </button>
@@ -128,9 +139,15 @@ export default function MediaSelectionButton({ onFileSelected }: MediaSelectionB
         {open && (
           <>
             <div className="media-backdrop" onClick={() => setOpen(false)} />
-            <ul className="media-dropdown" role="listbox">
+            <ul className="media-dropdown" role="listbox" aria-label="Select media type">
               {MEDIA_OPTIONS.map((option) => (
-                <li key={option.type} role="option" className="media-dropdown-item" onClick={() => handleOptionClick(option)}>
+                <li
+                  key={option.type}
+                  role="option"
+                  aria-selected="false"
+                  className="media-dropdown-item"
+                  onClick={() => handleOptionClick(option)}
+                >
                   <span className="media-item-icon">{option.icon}</span>
                   <span>{option.label}</span>
                 </li>
@@ -140,7 +157,12 @@ export default function MediaSelectionButton({ onFileSelected }: MediaSelectionB
         )}
       </div>
 
-      <input ref={fileInputRef} type="file" style={{ display: "none" }} onChange={handleFileChange} />
+      <input
+        ref={fileInputRef}
+        type="file"
+        style={{ display: "none" }}
+        onChange={handleFileChange}
+      />
     </div>
   );
 }

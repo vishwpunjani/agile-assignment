@@ -1,6 +1,9 @@
 "use client";
+
+import type { DragEvent } from "react";
 import { useState } from "react";
-import MediaSelectionButton from "@/components/MediaSelectionButton";
+import CopyTextButton from "@/components/CopyTextButton";
+import MessageInput from "@/components/MessageInput";
 
 const SUGGESTIONS = [
   "What services does the company offer?",
@@ -9,92 +12,100 @@ const SUGGESTIONS = [
   "How can I get started with your platform?",
 ];
 
+const LLM_OUTPUT_TEXT = "LLM OUTPUT DATA";
+
 export default function Home() {
-  const [input, setInput] = useState("");
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragCounter, setDragCounter] = useState(0);
+  const [message, setMessage] = useState("");
+
+  const handleDragEnter = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setDragCounter((prev) => prev + 1);
+    if (dragCounter === 0) {
+      setIsDragging(true);
+    }
+  };
+
+  const handleDragLeave = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setDragCounter((prev) => prev - 1);
+    if (dragCounter - 1 === 0) {
+      setIsDragging(false);
+    }
+  };
+
+  const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+  };
+
+  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+    setDragCounter(0);
+
+    const files = Array.from(e.dataTransfer.files);
+    const validTypes = [
+      "application/pdf",
+      "text/plain",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "image/jpeg",
+      "image/png",
+      "image/gif",
+      "image/webp",
+      "image/bmp",
+      "image/tiff",
+    ];
+    const invalidFiles = files.filter((file) => !validTypes.includes(file.type));
+
+    if (invalidFiles.length > 0) {
+      alert(`Some files are not valid. Valid formats: docx, pdf, txt, img. Invalid files: ${invalidFiles.map((file) => file.name).join(", ")}`);
+    } else {
+      alert("Files dropped successfully");
+    }
+  };
 
   const handleSuggestionClick = (suggestion: string) => {
-    setInput(suggestion);
+    setMessage(suggestion);
   };
 
   return (
-    <main style={{ 
-      display: "flex", 
-      justifyContent: "center", 
-      alignItems: "flex-end", 
-      height: "100vh", 
-      padding: "2rem",
-      background: "#f9fafb"
-    }}>
-      <div style={{ width: "100%", maxWidth: "700px", display: "flex", flexDirection: "column", gap: "12px" }}>
-
-        {input === "" && (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", justifyContent: "center" }}>
-            {SUGGESTIONS.map((suggestion, i) => (
-              <button
-                key={i}
-                onClick={() => handleSuggestionClick(suggestion)}
-                style={{
-                  padding: "8px 16px",
-                  background: "#ffffff",
-                  border: "1.5px solid #e5e7eb",
-                  borderRadius: "999px",
-                  fontSize: "14px",
-                  color: "#374151",
-                  cursor: "pointer",
-                  boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
-                }}
-              >
-                {suggestion}
-              </button>
-            ))}
+    <main className="page-root">
+      <section
+        className="drop-zone"
+        onDragEnter={handleDragEnter}
+        onDragLeave={handleDragLeave}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+        aria-label="Document upload drop zone"
+      >
+        <h1>Drag files here</h1>
+        <p>Valid formats: docx, pdf, txt, jpg, png, gif, webp, bmp, tiff.</p>
+        <p className="drop-zone-help">Drop files on the box above to upload.</p>
+        {isDragging && (
+          <div className="drop-zone-overlay">
+            Drop files now
           </div>
         )}
+      </section>
 
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-            padding: "12px 16px",
-            border: "1.5px solid #e5e7eb",
-            borderRadius: "999px",
-            width: "100%",
-            background: "#fff",
-            boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
-          }}
-        >
-          <MediaSelectionButton />
-          <input
-            type="text"
-            placeholder="Start asking..."
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            style={{
-              flex: 1,
-              border: "none",
-              outline: "none",
-              fontSize: "15px",
-              background: "transparent",
-              color: "#374151",
-            }}
-          />
-          {input && (
-            <button
-              onClick={() => setInput("")}
-              style={{
-                background: "none",
-                border: "none",
-                cursor: "pointer",
-                color: "#9ca3af",
-                fontSize: "18px",
-                padding: "0 4px",
-              }}
-            >
-              ×
-            </button>
-          )}
-        </div>
+      <section className="prompt-suggestions" aria-label="Suggested prompts">
+        {SUGGESTIONS.map((suggestion) => (
+          <button
+            key={suggestion}
+            type="button"
+            className="prompt-suggestion"
+            onClick={() => handleSuggestionClick(suggestion)}
+          >
+            {suggestion}
+          </button>
+        ))}
+      </section>
 
+      <MessageInput message={message} onMessageChange={setMessage} />
+
+      <div className="copy-button-wrapper">
+        <CopyTextButton textToCopy={LLM_OUTPUT_TEXT} />
       </div>
     </main>
   );

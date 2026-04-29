@@ -15,22 +15,10 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <header style={{
-          position: "fixed",
-          top: 0,
-          left: 0,
-          right: 0,
-          zIndex: 100,
-          padding: "16px 24px",
-          display: "flex",
-          alignItems: "center",
-          background: "rgba(249, 250, 251, 0.9)",
-          backdropFilter: "blur(8px)",
-          borderBottom: "1px solid #f3f4f6",
-        }}>
+        <header className="app-header">
           <CompanyLogo />
         </header>
-        <div style={{ paddingTop: "64px" }}>
+        <div className="app-content">
           {children}
         </div>
       </body>

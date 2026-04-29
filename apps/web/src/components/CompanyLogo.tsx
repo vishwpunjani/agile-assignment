@@ -2,10 +2,7 @@ import Image from "next/image";
 
 export default function CompanyLogo() {
   return (
-    <div style={{
-      display: "flex",
-      alignItems: "center",
-    }}>
+    <div className="company-logo">
       <Image
         src="/logo.jpeg"
         alt="Company Logo"
