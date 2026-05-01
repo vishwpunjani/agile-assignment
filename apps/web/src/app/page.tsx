@@ -1,14 +1,23 @@
-'use client';
+"use client";
 
 import type { DragEvent } from "react";
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import CopyTextButton from "@/components/CopyTextButton";
 import MessageInput from "@/components/MessageInput";
 
+const SUGGESTIONS = [
+  "What services does the company offer?",
+  "Tell me about the company portfolio",
+  "What technologies do you specialize in?",
+  "How can I get started with your platform?",
+];
+
 const LLM_OUTPUT_TEXT = "LLM OUTPUT DATA";
-const backendBaseUrl = "http://localhost:8000";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
 export default function Home() {
+  const router = useRouter();
   const [isDragging, setIsDragging] = useState(false);
   const [dragCounter, setDragCounter] = useState(0);
   const [lastQuery, setLastQuery] = useState<string | null>(null);
@@ -16,15 +25,17 @@ export default function Home() {
   const [isSending, setIsSending] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [statusVariant, setStatusVariant] = useState<"info" | "success" | "error">("info");
+  const [isListening, setIsListening] = useState(false);
+  const [message, setMessage] = useState("");
 
   const sendQuery = useCallback(async (query: string, mode: "send" | "retry") => {
     setIsRetrying(mode === "retry");
     setIsSending(true);
     setStatusVariant("info");
-    setStatusMessage(mode === "retry" ? "Retrying your previous query…" : "Processing your message…");
+    setStatusMessage(mode === "retry" ? "Retrying your previous query..." : "Processing your message...");
 
     try {
-      const response = await fetch(`${backendBaseUrl}/query`, {
+      const response = await fetch(`${API_BASE_URL}/query`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query }),
@@ -39,11 +50,15 @@ export default function Home() {
       }
 
       setStatusVariant("success");
-      setStatusMessage("The query was resent successfully.");
+      setStatusMessage(mode === "retry" ? "The query was resent successfully." : "The query was sent successfully.");
     } catch (error) {
       const detail = error instanceof Error ? error.message : "Unknown error.";
       setStatusVariant("error");
-      setStatusMessage(`Unable to resend the last query. ${detail}`);
+      setStatusMessage(
+        mode === "retry"
+          ? `Unable to resend the last query. ${detail}`
+          : `Unable to send the query. ${detail}`,
+      );
     } finally {
       setIsRetrying(false);
       setIsSending(false);
@@ -56,7 +71,7 @@ export default function Home() {
 
     setLastQuery(detail);
     setStatusVariant("info");
-    setStatusMessage("Processing your message…");
+    setStatusMessage("Processing your message...");
     void sendQuery(detail, "send");
   }, [sendQuery]);
 
@@ -71,6 +86,12 @@ export default function Home() {
     if (!lastQuery || isRetrying || isSending) return;
     void sendQuery(lastQuery, "retry");
   }, [isRetrying, isSending, lastQuery, sendQuery]);
+
+  useEffect(() => {
+    if (!localStorage.getItem("admin_token")) {
+      router.push("/login");
+    }
+  }, [router]);
 
   const handleDragEnter = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -118,6 +139,10 @@ export default function Home() {
     }
   };
 
+  const handleSuggestionClick = (suggestion: string) => {
+    setMessage(suggestion);
+  };
+
   return (
     <main className="page-root">
       <section
@@ -138,8 +163,25 @@ export default function Home() {
         )}
       </section>
 
+      <section className="prompt-suggestions" aria-label="Suggested prompts">
+        {SUGGESTIONS.map((suggestion) => (
+          <button
+            key={suggestion}
+            type="button"
+            className="prompt-suggestion"
+            onClick={() => handleSuggestionClick(suggestion)}
+          >
+            {suggestion}
+          </button>
+        ))}
+      </section>
+
       <MessageInput
-        canRetry={Boolean(lastQuery)}
+        message={message}
+        onMessageChange={setMessage}
+        isListening={isListening}
+        setIsListening={setIsListening}
+        canRetry={Boolean(lastQuery) && !isSending}
         isRetrying={isRetrying}
         onRetry={handleRetry}
       />
