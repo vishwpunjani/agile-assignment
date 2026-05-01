@@ -3,9 +3,21 @@
 import type { KeyboardEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import MediaSelectionButton from "@/components/MediaSelectionButton";
+import VoiceWave from "@/components/VoiceWave";
 
-export default function MessageInput() {
-  const [message, setMessage] = useState("");
+interface MessageInputProps {
+  message: string;
+  onMessageChange: (message: string) => void;
+  isListening?: boolean;
+  setIsListening?: (val: boolean) => void;
+}
+
+export default function MessageInput({ 
+  message, 
+  onMessageChange, 
+  isListening, 
+  setIsListening 
+}: MessageInputProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [recordingPulse, setRecordingPulse] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -43,8 +55,8 @@ export default function MessageInput() {
     if (!trimmed) return;
 
     window.dispatchEvent(new CustomEvent("messageSent", { detail: trimmed }));
-    setMessage("");
-  }, [message]);
+    onMessageChange("");
+  }, [message, onMessageChange]);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !event.shiftKey) {
@@ -56,6 +68,7 @@ export default function MessageInput() {
   const stopRecording = () => {
     mediaRecorderRef.current?.stop();
     setIsRecording(false);
+    if (setIsListening) setIsListening(false);
   };
 
   const toggleRecording = async () => {
@@ -87,13 +100,14 @@ export default function MessageInput() {
         if (chunksRef.current.length > 0) {
           const blob = new Blob(chunksRef.current, { type: "audio/webm" });
           window.dispatchEvent(new CustomEvent("audioRecorded", { detail: blob }));
-          setMessage("Voice message recorded");
+          onMessageChange("Voice message recorded");
         }
       };
 
       mediaRecorderRef.current = recorder;
       recorder.start();
       setIsRecording(true);
+      if (setIsListening) setIsListening(true);
     } catch {
       alert("Microphone access denied. Please allow microphone permissions.");
     }
@@ -102,16 +116,24 @@ export default function MessageInput() {
   return (
     <section className="message-composer" aria-label="Message composer">
       <MediaSelectionButton />
-      <textarea
-        ref={textareaRef}
-        className="message-textarea"
-        placeholder="Type your message..."
-        value={message}
-        onChange={(event) => setMessage(event.target.value)}
-        onKeyDown={handleKeyDown}
-        rows={1}
-        aria-label="Message input"
-      />
+      
+      {isRecording ? (
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <VoiceWave isListening={isRecording} />
+        </div>
+      ) : (
+        <textarea
+          ref={textareaRef}
+          className="message-textarea"
+          placeholder="Type your message..."
+          value={message}
+          onChange={(event) => onMessageChange(event.target.value)}
+          onKeyDown={handleKeyDown}
+          rows={1}
+          aria-label="Message input"
+        />
+      )}
+
       <div className="composer-actions">
         <span className="hint-text">
           {isRecording ? "Recording. Press stop when done." : "Enter to send. Shift+Enter for a new line."}

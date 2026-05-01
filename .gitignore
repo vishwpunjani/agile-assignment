@@ -1,9 +1,13 @@
 node_modules/
+.DS_Store
+**/.DS_Store
 apps/web/node_modules/
 apps/web/.next/
 apps/web/out/
+.vscode/
 .venv/
 apps/api/.venv/
+apps/api/data/chroma/
 __pycache__/
 .pytest_cache/
 .mypy_cache/
