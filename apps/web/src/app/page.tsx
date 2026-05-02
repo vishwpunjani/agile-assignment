@@ -1,10 +1,14 @@
 "use client";
 
-import type { DragEvent } from "react";
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import type { FormEvent } from "react";
+import { useRef, useState } from "react";
 import CopyTextButton from "@/components/CopyTextButton";
 import MessageInput from "@/components/MessageInput";
+import { useAdminAuth } from "@/context/AdminAuthContext";
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+const MAX_FILE_BYTES = 10 * 1024 * 1024;
+const ALLOWED_EXTENSIONS = [".pdf", ".docx", ".txt"];
 
 const SUGGESTIONS = [
   "What services does the company offer?",
@@ -15,89 +19,107 @@ const SUGGESTIONS = [
 
 const LLM_OUTPUT_TEXT = "LLM OUTPUT DATA";
 
+type ReplaceStatus = "idle" | "uploading" | "success" | "error";
+
 export default function Home() {
-  const router = useRouter();
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragCounter, setDragCounter] = useState(0);
+  const { isAdmin, token } = useAdminAuth();
   const [isListening, setIsListening] = useState(false);
   const [message, setMessage] = useState("");
 
-  // Master'dan gelen Login kontrolü
-  useEffect(() => {
-    if (!localStorage.getItem("admin_token")) {
-      router.push("/login");
-    }
-  }, [router]);
-
-  const handleDragEnter = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setDragCounter((prev) => prev + 1);
-    if (dragCounter === 0) {
-      setIsDragging(true);
-    }
-  };
-
-  const handleDragLeave = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setDragCounter((prev) => prev - 1);
-    if (dragCounter - 1 === 0) {
-      setIsDragging(false);
-    }
-  };
-
-  const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-  };
-
-  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setIsDragging(false);
-    setDragCounter(0);
-
-    const files = Array.from(e.dataTransfer.files);
-    const validTypes = [
-      "application/pdf",
-      "text/plain",
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      "image/jpeg",
-      "image/png",
-      "image/gif",
-      "image/webp",
-      "image/bmp",
-      "image/tiff",
-    ];
-    const invalidFiles = files.filter((file) => !validTypes.includes(file.type));
-
-    if (invalidFiles.length > 0) {
-      alert(`Some files are not valid. Valid formats: docx, pdf, txt, img. Invalid files: ${invalidFiles.map((file) => file.name).join(", ")}`);
-    } else {
-      alert("Files dropped successfully");
-    }
-  };
+  const [replaceFile, setReplaceFile] = useState<File | null>(null);
+  const [replaceStatus, setReplaceStatus] = useState<ReplaceStatus>("idle");
+  const [replaceError, setReplaceError] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSuggestionClick = (suggestion: string) => {
     setMessage(suggestion);
   };
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] ?? null;
+    setReplaceFile(file);
+    setReplaceStatus("idle");
+    setReplaceError("");
+  };
+
+  const handleReplaceSubmit = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!replaceFile || !token) return;
+
+    const ext = replaceFile.name.slice(replaceFile.name.lastIndexOf(".")).toLowerCase();
+    if (!ALLOWED_EXTENSIONS.includes(ext)) {
+      setReplaceStatus("error");
+      setReplaceError(`Invalid file type. Allowed: ${ALLOWED_EXTENSIONS.join(", ")}`);
+      return;
+    }
+
+    if (replaceFile.size > MAX_FILE_BYTES) {
+      setReplaceStatus("error");
+      setReplaceError("File exceeds the 10 MB limit.");
+      return;
+    }
+
+    setReplaceStatus("uploading");
+    setReplaceError("");
+
+    try {
+      const formData = new FormData();
+      formData.append("file", replaceFile);
+
+      const res = await fetch(`${API_BASE_URL}/documents`, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({})) as { detail?: string };
+        throw new Error(data.detail ?? "Upload failed");
+      }
+
+      setReplaceStatus("success");
+      setReplaceFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    } catch (err) {
+      setReplaceStatus("error");
+      setReplaceError(err instanceof Error ? err.message : "Upload failed");
+    }
+  };
+
   return (
     <main className="page-root">
-      <section
-        className="drop-zone"
-        onDragEnter={handleDragEnter}
-        onDragLeave={handleDragLeave}
-        onDragOver={handleDragOver}
-        onDrop={handleDrop}
-        aria-label="Document upload drop zone"
-      >
-        <h1>Drag files here</h1>
-        <p>Valid formats: docx, pdf, txt, jpg, png, gif, webp, bmp, tiff.</p>
-        <p className="drop-zone-help">Drop files on the box above to upload.</p>
-        {isDragging && (
-          <div className="drop-zone-overlay">
-            Drop files now
-          </div>
-        )}
-      </section>
+      {isAdmin && (
+        <section className="doc-replace-panel" aria-label="Replace company document">
+          <h2 className="doc-replace-title">Replace Company Document</h2>
+          <form className="doc-replace-form" onSubmit={handleReplaceSubmit}>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf,.docx,.txt"
+              className="doc-replace-input"
+              onChange={handleFileChange}
+              aria-label="Select document to upload"
+            />
+            <button
+              type="submit"
+              className="doc-replace-btn"
+              disabled={!replaceFile || replaceStatus === "uploading"}
+            >
+              {replaceStatus === "uploading" ? "Uploading..." : "Upload"}
+            </button>
+          </form>
+          {replaceStatus === "success" && (
+            <p className="doc-replace-success" role="status">
+              Document replaced successfully. RAG index updated.
+            </p>
+          )}
+          {replaceStatus === "error" && (
+            <p className="doc-replace-error" role="alert">
+              {replaceError}
+            </p>
+          )}
+        </section>
+      )}
 
       <section className="prompt-suggestions" aria-label="Suggested prompts">
         {SUGGESTIONS.map((suggestion) => (
@@ -112,9 +134,9 @@ export default function Home() {
         ))}
       </section>
 
-      <MessageInput 
-        message={message} 
-        onMessageChange={setMessage} 
+      <MessageInput
+        message={message}
+        onMessageChange={setMessage}
         isListening={isListening}
         setIsListening={setIsListening}
       />
