@@ -19,6 +19,7 @@ OFF_TOPIC_RESPONSE = (
     "I can only answer questions about the company, its services, portfolio, "
     "technologies, or how it may help with customer projects."
 )
+MAX_HISTORY_MESSAGES = 12
 
 _CUSTOMER_COMPANY_QUERY_TERMS = {
     "about",
@@ -144,17 +145,22 @@ def get_chat_provider(settings: Settings | None = None) -> OllamaGenerateProvide
     )
 
 
-def run_rag_query(query: str, top_k: int) -> tuple[str, list[str]]:
+def run_rag_query(
+    query: str,
+    top_k: int,
+    history: Sequence[ChatTurn] = (),
+) -> tuple[str, list[str]]:
     normalized_query = query.strip()
     if not normalized_query:
         raise ValueError("Query cannot be empty")
-    if not is_customer_company_query(normalized_query):
+    recent_history = _recent_history(history)
+    if not is_customer_company_query(normalized_query, recent_history):
         return OFF_TOPIC_RESPONSE, []
-    
+
     results = search_documents(normalized_query, top_k=top_k)
-    prompt = build_rag_prompt(normalized_query, results)
+    prompt = build_rag_prompt(normalized_query, results, recent_history)
     try:
-        answer = get_chat_provider().generate(prompt, results, [])
+        answer = get_chat_provider().generate(prompt, results, recent_history)
     except LLMProviderError:
         raise
     except Exception as exc:
@@ -162,24 +168,28 @@ def run_rag_query(query: str, top_k: int) -> tuple[str, list[str]]:
     return answer, _sources(results)
 
 
-async def run_rag_query_stream(query: str, top_k: int) -> AsyncGenerator[str, None]:
+async def run_rag_query_stream(
+    query: str,
+    top_k: int,
+    history: Sequence[ChatTurn] = (),
+) -> AsyncGenerator[str, None]:
     
     try:
         normalized_query = query.strip()
         if not normalized_query:
             raise ValueError("Query cannot be empty")
-        if not is_customer_company_query(normalized_query):
+        recent_history = _recent_history(history)
+        if not is_customer_company_query(normalized_query, recent_history):
             yield OFF_TOPIC_RESPONSE
             return
 
-        
         results = search_documents(normalized_query, top_k=top_k)
         
-        prompt = build_rag_prompt(normalized_query, results)
+        prompt = build_rag_prompt(normalized_query, results, recent_history)
         
         
         provider = get_chat_provider()
-        async for chunk in provider.generate_stream(prompt, results, []):
+        async for chunk in provider.generate_stream(prompt, results, recent_history):
             yield chunk
             
     except Exception as e:
@@ -188,13 +198,18 @@ async def run_rag_query_stream(query: str, top_k: int) -> AsyncGenerator[str, No
         yield f"Error: {str(e)}"
 
 
-def build_rag_prompt(query: str, results: Sequence[SearchResult]) -> str:
+def build_rag_prompt(
+    query: str,
+    results: Sequence[SearchResult],
+    history: Sequence[ChatTurn] = (),
+) -> str:
     context = "\n\n".join(
         f"Source {index + 1} ({_source(result)}):\n{result.text}"
         for index, result in enumerate(results)
     )
     if not context:
         context = "No retrieved context."
+    conversation = _format_history(_recent_history(history))
     return (
         "You are a customer-facing company assistant for the website frontend. "
         "Use a helpful, cheerful, and professional tone. "
@@ -211,13 +226,21 @@ def build_rag_prompt(query: str, results: Sequence[SearchResult]) -> str:
         "to share more project details or contact the company through the available website channels. "
         "Keep the response concise, clear, and customer-ready.\n\n"
         f"Retrieved context:\n{context}\n\n"
+        f"Conversation so far:\n{conversation}\n\n"
         f"Question:\n{query}\n\n"
         "Answer:"
     )
 
 
-def is_customer_company_query(query: str) -> bool:
+def is_customer_company_query(query: str, history: Sequence[ChatTurn] = ()) -> bool:
     normalized = query.lower()
+    if _matches_customer_company_query(normalized):
+        return True
+
+    return _answers_recent_company_follow_up(history)
+
+
+def _matches_customer_company_query(normalized: str) -> bool:
     if any(phrase in normalized for phrase in _CUSTOMER_COMPANY_QUERY_PHRASES):
         return True
 
@@ -226,6 +249,36 @@ def is_customer_company_query(query: str) -> bool:
         for word in normalized.replace("/", " ").replace("-", " ").split()
     }
     return bool(words & _CUSTOMER_COMPANY_QUERY_TERMS)
+
+
+def _answers_recent_company_follow_up(history: Sequence[ChatTurn]) -> bool:
+    recent_history = _recent_history(history)
+    if not recent_history or recent_history[-1].role != "assistant":
+        return False
+
+    assistant_message = recent_history[-1].content.lower()
+    if not _asks_for_project_details(assistant_message):
+        return False
+
+    return any(
+        turn.role == "user" and _matches_customer_company_query(turn.content.lower())
+        for turn in recent_history[:-1]
+    )
+
+
+def _asks_for_project_details(message: str) -> bool:
+    if "?" in message:
+        return True
+
+    follow_up_phrases = (
+        "share more",
+        "tell me more",
+        "project details",
+        "specific features",
+        "technology stack",
+        "tech stack",
+    )
+    return any(phrase in message for phrase in follow_up_phrases)
 
 
 def _extract_answer(payload: dict[str, Any]) -> str:
@@ -239,6 +292,21 @@ def _extract_answer(payload: dict[str, Any]) -> str:
         return message["content"]
 
     raise LLMProviderError("LLM provider returned an invalid response")
+
+
+def _recent_history(history: Sequence[ChatTurn]) -> list[ChatTurn]:
+    return list(history)[-MAX_HISTORY_MESSAGES:]
+
+
+def _format_history(history: Sequence[ChatTurn]) -> str:
+    if not history:
+        return "No prior conversation."
+
+    lines = []
+    for turn in history:
+        speaker = "User" if turn.role == "user" else "Assistant"
+        lines.append(f"{speaker}: {turn.content}")
+    return "\n".join(lines)
 
 
 def _sources(results: Sequence[SearchResult]) -> list[str]:

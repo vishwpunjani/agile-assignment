@@ -1,7 +1,7 @@
 "use client";
 
 import type { DragEvent } from "react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import CopyTextButton from "@/components/CopyTextButton";
 import MarkdownResponse from "@/components/MarkdownResponse";
 import MessageInput from "@/components/MessageInput";
@@ -15,29 +15,104 @@ const SUGGESTIONS = [
   "How can I get started with your platform?",
 ];
 const RETRIEVAL_TOP_K = 10;
+const MAX_HISTORY_MESSAGES = 12;
+
+type ChatRole = "user" | "assistant";
+
+interface ChatMessage {
+  id: string;
+  role: ChatRole;
+  content: string;
+}
+
+interface LastQuery {
+  query: string;
+  history: ChatMessage[];
+  assistantMessageId: string;
+}
+
+function createMessageId() {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function toRequestHistory(messages: ChatMessage[]) {
+  return messages.slice(-MAX_HISTORY_MESSAGES).map(({ role, content }) => ({ role, content }));
+}
 
 export default function Home() {
   const [isDragging, setIsDragging] = useState(false);
   const [dragCounter, setDragCounter] = useState(0);
-  const [lastQuery, setLastQuery] = useState<string | null>(null);
+  const [lastQuery, setLastQuery] = useState<LastQuery | null>(null);
   const [isRetrying, setIsRetrying] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [isListening, setIsListening] = useState(false);
   const [message, setMessage] = useState("");
-  const [completion, setCompletion] = useState("");
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const messagesRef = useRef<ChatMessage[]>([]);
+  const activeControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  useEffect(() => {
+    return () => activeControllerRef.current?.abort();
+  }, []);
 
   const sendQuery = useCallback(async (query: string, mode: "send" | "retry") => {
+    activeControllerRef.current?.abort();
+
+    const controller = new AbortController();
+    activeControllerRef.current = controller;
+    const userHistory = mode === "retry" && lastQuery
+      ? lastQuery.history
+      : messagesRef.current;
+    const userMessage: ChatMessage = {
+      id: createMessageId(),
+      role: "user",
+      content: query,
+    };
+    const assistantMessage: ChatMessage = {
+      id: mode === "retry" && lastQuery ? lastQuery.assistantMessageId : createMessageId(),
+      role: "assistant",
+      content: "",
+    };
+    const requestHistory = toRequestHistory(userHistory);
+
     setIsRetrying(mode === "retry");
     setIsSending(true);
-    setCompletion(""); 
     setStatusMessage(null);
+    setLastQuery({
+      query,
+      history: userHistory,
+      assistantMessageId: assistantMessage.id,
+    });
+
+    if (mode === "retry") {
+      setMessages((current) =>
+        current.map((chatMessage) =>
+          chatMessage.id === assistantMessage.id
+            ? { ...chatMessage, content: "" }
+            : chatMessage
+        )
+      );
+    } else {
+      setMessages((current) => [...current, userMessage, assistantMessage]);
+    }
 
     try {
       const response = await fetch(`${API_BASE_URL}/query/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query, top_k: RETRIEVAL_TOP_K }),
+        body: JSON.stringify({
+          query,
+          top_k: RETRIEVAL_TOP_K,
+          history: requestHistory,
+        }),
+        signal: controller.signal,
       });
 
       if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
@@ -50,21 +125,41 @@ export default function Home() {
         const { value, done } = await reader.read();
         if (done) break;
         const chunk = decoder.decode(value, { stream: true });
-        setCompletion((prev) => prev + chunk);
+        setMessages((current) =>
+          current.map((chatMessage) =>
+            chatMessage.id === assistantMessage.id
+              ? { ...chatMessage, content: chatMessage.content + chunk }
+              : chatMessage
+          )
+        );
       }
     } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
       setStatusMessage(error instanceof Error ? error.message : "An error occurred.");
     } finally {
-      setIsRetrying(false);
-      setIsSending(false);
+      if (activeControllerRef.current === controller) {
+        activeControllerRef.current = null;
+        setIsRetrying(false);
+        setIsSending(false);
+      }
     }
+  }, [lastQuery]);
+
+  const startNewChat = useCallback(() => {
+    activeControllerRef.current?.abort();
+    activeControllerRef.current = null;
+    setMessages([]);
+    setLastQuery(null);
+    setStatusMessage(null);
+    setMessage("");
+    setIsRetrying(false);
+    setIsSending(false);
   }, []);
 
   // Event Listeners
   const handleMessageSent = useCallback((event: Event) => {
     const detail = (event as CustomEvent<string>).detail;
     if (!detail) return;
-    setLastQuery(detail);
     void sendQuery(detail, "send");
   }, [sendQuery]);
 
@@ -122,27 +217,65 @@ export default function Home() {
           ))}
         </div>
 
-        {/* 3. AI Response Box (The RAG UI) */}
+        {/* 3. Conversation Box (The RAG UI) */}
         <div className="bg-white border border-gray-200 rounded-2xl shadow-sm min-h-[250px] flex flex-col relative overflow-hidden">
           {/* Box Header */}
           <div className="px-6 py-3 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
-            <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">AI Response</span>
-            {completion && !isSending && (
-              <div className="scale-90 transform-gpu origin-right">
-                <CopyTextButton textToCopy={completion} />
-              </div>
-            )}
+            <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">Conversation</span>
+            <div className="flex items-center gap-3">
+              {messages.some((chatMessage) => chatMessage.role === "assistant" && chatMessage.content) && !isSending && (
+                <div className="scale-90 transform-gpu origin-right">
+                  <CopyTextButton
+                    textToCopy={messages
+                      .filter((chatMessage) => chatMessage.role === "assistant" && chatMessage.content)
+                      .map((chatMessage) => chatMessage.content)
+                      .join("\n\n")}
+                  />
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={startNewChat}
+                disabled={messages.length === 0 && !statusMessage && !message}
+                className="px-3 py-2 rounded-lg border border-gray-200 bg-white text-xs font-semibold text-gray-600 hover:border-blue-300 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                New chat
+              </button>
+            </div>
           </div>
 
           {/* Box Content */}
-          <div className="p-8 flex-1">
-            {isSending && !completion ? (
-              <div className="flex items-center gap-2 text-gray-400 animate-pulse">
-                <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
-                <span>AI is thinking...</span>
+          <div className="p-6 flex-1">
+            {messages.length > 0 ? (
+              <div className="flex flex-col gap-5">
+                {messages.map((chatMessage) => (
+                  <div
+                    key={chatMessage.id}
+                    className={`flex ${chatMessage.role === "user" ? "justify-end" : "justify-start"}`}
+                  >
+                    <div
+                      className={`max-w-[85%] rounded-xl px-4 py-3 text-sm leading-6 ${
+                        chatMessage.role === "user"
+                          ? "bg-blue-600 text-white"
+                          : "border border-gray-100 bg-gray-50 text-gray-700"
+                      }`}
+                    >
+                      {chatMessage.content ? (
+                        chatMessage.role === "assistant" ? (
+                          <MarkdownResponse content={chatMessage.content} />
+                        ) : (
+                          <p className="whitespace-pre-wrap">{chatMessage.content}</p>
+                        )
+                      ) : (
+                        <div className="flex items-center gap-2 text-gray-400 animate-pulse">
+                          <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
+                          <span>AI is thinking...</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
               </div>
-            ) : completion ? (
-              <MarkdownResponse content={completion} />
             ) : (
               <div className="h-full flex items-center justify-center text-gray-300 italic text-sm">
                 Waiting for your question...
@@ -160,7 +293,7 @@ export default function Home() {
             setIsListening={setIsListening}
             canRetry={Boolean(lastQuery) && !isSending}
             isRetrying={isRetrying}
-            onRetry={() => sendQuery(lastQuery!, "retry")}
+            onRetry={() => lastQuery && sendQuery(lastQuery.query, "retry")}
           />
           
           {statusMessage && (

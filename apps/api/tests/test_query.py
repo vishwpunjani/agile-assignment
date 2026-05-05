@@ -15,10 +15,17 @@ class RecordingChatProvider:
     def __init__(self, answer: str = "Generated answer") -> None:
         self.answer = answer
         self.prompts: list[str] = []
+        self.histories: list[list[ChatTurn]] = []
 
     def generate(self, prompt: str, context: list[SearchResult], history: list[ChatTurn]) -> str:
         self.prompts.append(prompt)
+        self.histories.append(list(history))
         return self.answer
+
+    async def generate_stream(self, prompt: str, context: list[SearchResult], history: list[ChatTurn]):
+        self.prompts.append(prompt)
+        self.histories.append(list(history))
+        yield self.answer
 
 
 class FailingChatProvider:
@@ -69,6 +76,17 @@ def test_query_remains_public(client: TestClient, monkeypatch: pytest.MonkeyPatc
     assert response.json()["sources"] == ["company.txt#0"]
 
 
+def test_query_request_accepts_missing_history(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = RecordingChatProvider("Single-turn answer")
+    monkeypatch.setattr(query_service, "get_chat_provider", lambda _settings=None: provider)
+    _upload_company_document(client, b"Acme builds clinical AI tools for hospitals.")
+
+    response = client.post("/query", json={"query": "What does Acme build?", "top_k": 1})
+
+    assert response.status_code == 200
+    assert provider.histories == [[]]
+
+
 def test_rag_prompt_includes_retrieved_chunks_and_user_query(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -83,6 +101,126 @@ def test_rag_prompt_includes_retrieved_chunks_and_user_query(
     assert "Acme builds clinical AI tools for hospitals." in provider.prompts[0]
     assert "Which users does Acme serve?" in provider.prompts[0]
     assert "If the answer requires counting items explicitly listed in the context, count them." in provider.prompts[0]
+
+
+def test_rag_prompt_includes_prior_conversation(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provider = RecordingChatProvider()
+    monkeypatch.setattr(query_service, "get_chat_provider", lambda _settings=None: provider)
+    _upload_company_document(client, b"Acme builds clinical AI tools for hospitals.")
+
+    response = client.post(
+        "/query",
+        json={
+            "query": "What services should I ask about next?",
+            "top_k": 1,
+            "history": [
+                {"role": "user", "content": "What does Acme build?"},
+                {"role": "assistant", "content": "Acme builds clinical AI tools."},
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    prompt = provider.prompts[0]
+    assert "Conversation so far:" in prompt
+    assert "User: What does Acme build?" in prompt
+    assert "Assistant: Acme builds clinical AI tools." in prompt
+    assert provider.histories[0] == [
+        ChatTurn(role="user", content="What does Acme build?"),
+        ChatTurn(role="assistant", content="Acme builds clinical AI tools."),
+    ]
+
+
+def test_short_answer_to_assistant_follow_up_uses_prior_conversation(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provider = RecordingChatProvider("React is a reasonable frontend choice.")
+    monkeypatch.setattr(query_service, "get_chat_provider", lambda _settings=None: provider)
+    _upload_company_document(client, b"Acme builds web applications and customer-facing websites.")
+
+    response = client.post(
+        "/query",
+        json={
+            "query": "react probably",
+            "top_k": 1,
+            "history": [
+                {"role": "user", "content": "I have a plumbing company and I want a website"},
+                {
+                    "role": "assistant",
+                    "content": (
+                        "What specific features do you want to include on the website, "
+                        "and what are your expectations for the technology stack?"
+                    ),
+                },
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["answer"] == "React is a reasonable frontend choice."
+    assert provider.histories[0] == [
+        ChatTurn(role="user", content="I have a plumbing company and I want a website"),
+        ChatTurn(
+            role="assistant",
+            content=(
+                "What specific features do you want to include on the website, "
+                "and what are your expectations for the technology stack?"
+            ),
+        ),
+    ]
+
+
+def test_query_history_is_capped_to_recent_messages(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provider = RecordingChatProvider()
+    monkeypatch.setattr(query_service, "get_chat_provider", lambda _settings=None: provider)
+    _upload_company_document(client, b"Acme provides web apps, AI assistants, and automation services.")
+    history = [
+        {"role": "user" if index % 2 == 0 else "assistant", "content": f"message {index}"}
+        for index in range(14)
+    ]
+
+    response = client.post(
+        "/query",
+        json={"query": "What services does Acme offer?", "top_k": 1, "history": history},
+    )
+
+    assert response.status_code == 200
+    assert [turn.content for turn in provider.histories[0]] == [f"message {index}" for index in range(2, 14)]
+    prompt_lines = provider.prompts[0].splitlines()
+    assert "User: message 0" not in prompt_lines
+    assert "Assistant: message 1" not in prompt_lines
+    assert "Assistant: message 13" in prompt_lines
+
+
+def test_stream_query_passes_prior_conversation(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provider = RecordingChatProvider("Streamed answer")
+    monkeypatch.setattr(query_service, "get_chat_provider", lambda _settings=None: provider)
+    _upload_company_document(client, b"Acme builds clinical AI tools for hospitals.")
+
+    response = client.post(
+        "/query/stream",
+        json={
+            "query": "Which services are relevant?",
+            "top_k": 1,
+            "history": [
+                {"role": "user", "content": "Can Acme help hospitals?"},
+                {"role": "assistant", "content": "Yes, Acme builds clinical AI tools."},
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.text == "Streamed answer"
+    assert provider.histories[0] == [
+        ChatTurn(role="user", content="Can Acme help hospitals?"),
+        ChatTurn(role="assistant", content="Yes, Acme builds clinical AI tools."),
+    ]
 
 
 def test_rag_prompt_guides_customer_facing_company_responses(
