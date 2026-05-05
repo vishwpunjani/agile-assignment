@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Any, AsyncGenerator
 
 import httpx
@@ -84,6 +85,13 @@ _CUSTOMER_COMPANY_QUERY_PHRASES = (
 )
 
 
+@dataclass(frozen=True, slots=True)
+class RagRequest:
+    prompt: str
+    results: list[SearchResult]
+    history: list[ChatTurn]
+
+
 class OllamaGenerateProvider:
     def __init__(self, url: str, model: str, timeout_seconds: float = 30.0) -> None:
         self._url = url
@@ -157,22 +165,21 @@ def run_rag_query(
     top_k: int,
     history: Sequence[ChatTurn] = (),
 ) -> tuple[str, list[str]]:
-    normalized_query = query.strip()
-    if not normalized_query:
-        raise ValueError("Query cannot be empty")
-    recent_history = _recent_history(history)
-    if not is_customer_company_query(normalized_query, recent_history):
+    rag_request = _build_rag_request(query, top_k, history)
+    if rag_request is None:
         return OFF_TOPIC_RESPONSE, []
 
-    results = search_documents(normalized_query, top_k=top_k)
-    prompt = build_rag_prompt(normalized_query, results, recent_history)
     try:
-        answer = get_chat_provider().generate(prompt, results, recent_history)
+        answer = get_chat_provider().generate(
+            rag_request.prompt,
+            rag_request.results,
+            rag_request.history,
+        )
     except LLMProviderError:
         raise
     except Exception as exc:
         raise LLMProviderError("LLM provider failed") from exc
-    return answer, _sources(results)
+    return answer, _sources(rag_request.results)
 
 
 async def run_rag_query_stream(
@@ -180,29 +187,41 @@ async def run_rag_query_stream(
     top_k: int,
     history: Sequence[ChatTurn] = (),
 ) -> AsyncGenerator[str, None]:
-    
     try:
-        normalized_query = query.strip()
-        if not normalized_query:
-            raise ValueError("Query cannot be empty")
-        recent_history = _recent_history(history)
-        if not is_customer_company_query(normalized_query, recent_history):
+        rag_request = _build_rag_request(query, top_k, history)
+        if rag_request is None:
             yield OFF_TOPIC_RESPONSE
             return
 
-        results = search_documents(normalized_query, top_k=top_k)
-        
-        prompt = build_rag_prompt(normalized_query, results, recent_history)
-        
-        
         provider = get_chat_provider()
-        async for chunk in provider.generate_stream(prompt, results, recent_history):
+        async for chunk in provider.generate_stream(
+            rag_request.prompt,
+            rag_request.results,
+            rag_request.history,
+        ):
             yield chunk
-            
-    except Exception as e:
-        
-        print(f"BACKEND STREAM ERROR: {str(e)}")
-        yield f"Error: {str(e)}"
+
+    except Exception as exc:
+        print(f"BACKEND STREAM ERROR: {str(exc)}")
+        yield f"Error: {str(exc)}"
+
+
+def _build_rag_request(
+    query: str,
+    top_k: int,
+    history: Sequence[ChatTurn] = (),
+) -> RagRequest | None:
+    normalized_query = query.strip()
+    if not normalized_query:
+        raise ValueError("Query cannot be empty")
+
+    recent_history = _recent_history(history)
+    if not is_customer_company_query(normalized_query, recent_history):
+        return None
+
+    results = search_documents(normalized_query, top_k=top_k)
+    prompt = build_rag_prompt(normalized_query, results, recent_history)
+    return RagRequest(prompt=prompt, results=results, history=recent_history)
 
 
 def build_rag_prompt(
