@@ -1,19 +1,16 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
-import os
-import requests
 
-from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 
 from app.schemas.voice import TTSChunk, TTSRequest, TTSResponse
+from app.services.query_service import run_rag_query, run_rag_query_stream
 from app.services.interfaces import TextToSpeechProvider
 from app.services.tts import TTSError, stream_answer_chunks, synthesize_answer
-
-load_dotenv()
 
 logger = logging.getLogger(__name__)
 
@@ -21,50 +18,17 @@ router = APIRouter(tags=["tts"])
 
 
 def get_answer_from_llm(question: str) -> str:
-    llm_bridge_url = os.getenv("LLM_BRIDGE_URL", "http://localhost:8001/ask")
-    response = requests.post(
-        llm_bridge_url,
-        headers={"Content-Type": "application/json"},
-        json={"prompt": f"Answer in 2 sentences only: {question}"}
-    )
-    data = response.json()
-    print("LLM response:", data)
-    if "response" not in data:
-        raise Exception(f"LLM API error: {data}")
-    return data["response"]
+    answer, _sources = run_rag_query(question, top_k=5)
+    return answer
 
 
 def stream_answer_from_llm(question: str):
-    ollama_url = os.getenv("OLLAMA_URL", "https://nebiakay-llama-backend.hf.space/api/generate")
-    model_name = os.getenv("MODEL_NAME", "llama3.2:1b")
-    response = requests.post(
-        ollama_url,
-        headers={"Content-Type": "application/json"},
-        json={
-            "model": model_name,
-            "prompt": f"Answer in 2 sentences only: {question}",
-            "stream": True
-        },
-        stream=True
-    )
-    buffer = ""
-    for line in response.iter_lines():
-        if line:
-            try:
-                import json
-                data = json.loads(line.decode("utf-8"))
-                token = data.get("response", "")
-                if token:
-                    buffer += token
-                    if any(p in buffer for p in [".", "!", "?"]):
-                        yield buffer.strip()
-                        buffer = ""
-                if data.get("done"):
-                    break
-            except Exception:
-                continue
-    if buffer.strip():
-        yield buffer.strip()
+    async def _collect_chunks() -> list[str]:
+        return [chunk async for chunk in run_rag_query_stream(question, top_k=5)]
+
+    for chunk in asyncio.run(_collect_chunks()):
+        if chunk.strip():
+            yield chunk
 
 
 def get_tts_provider() -> TextToSpeechProvider:

@@ -33,6 +33,15 @@ class FailingChatProvider:
         raise RuntimeError("upstream unavailable")
 
 
+class FailingStreamChatProvider:
+    def generate(self, prompt: str, context: list[SearchResult], history: list[ChatTurn]) -> str:
+        return "This should not be returned"
+
+    async def generate_stream(self, prompt: str, context: list[SearchResult], history: list[ChatTurn]):
+        raise RuntimeError("upstream unavailable with internal details")
+        yield "unreachable"
+
+
 def _admin_headers() -> dict[str, str]:
     token = create_access_token({"sub": "test-user", "role": "Admin"})
     return {"Authorization": f"Bearer {token}"}
@@ -85,6 +94,39 @@ def test_query_request_accepts_missing_history(client: TestClient, monkeypatch: 
 
     assert response.status_code == 200
     assert provider.histories == [[]]
+
+
+def test_query_request_rejects_unbounded_prompt_inputs(client: TestClient) -> None:
+    response = client.post("/query", json={"query": "x" * 1001})
+
+    assert response.status_code == 422
+
+
+def test_query_request_rejects_unbounded_history(client: TestClient) -> None:
+    response = client.post(
+        "/query",
+        json={
+            "query": "What services does the company offer?",
+            "history": [
+                {"role": "user" if index % 2 == 0 else "assistant", "content": f"message {index}"}
+                for index in range(13)
+            ],
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_query_request_rejects_unbounded_history_content(client: TestClient) -> None:
+    response = client.post(
+        "/query",
+        json={
+            "query": "What services does the company offer?",
+            "history": [{"role": "user", "content": "x" * 2001}],
+        },
+    )
+
+    assert response.status_code == 422
 
 
 def test_rag_prompt_includes_retrieved_chunks_and_user_query(
@@ -172,7 +214,47 @@ def test_short_answer_to_assistant_follow_up_uses_prior_conversation(
     ]
 
 
-def test_query_history_is_capped_to_recent_messages(
+@pytest.mark.parametrize(
+    "customer_reply",
+    [
+        "a hero section on the landing page",
+        "modern and friendly",
+        "something simple for local customers",
+    ],
+)
+def test_short_answers_to_project_follow_up_stay_in_scope(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, customer_reply: str
+) -> None:
+    provider = RecordingChatProvider("I can help refine that into a website direction.")
+    monkeypatch.setattr(query_service, "get_chat_provider", lambda _settings=None: provider)
+    _upload_company_document(client, b"Acme builds websites and digital products for businesses.")
+
+    response = client.post(
+        "/query",
+        json={
+            "query": customer_reply,
+            "top_k": 1,
+            "history": [
+                {"role": "user", "content": "I run a local business and want a website"},
+                {
+                    "role": "assistant",
+                    "content": (
+                        "What features, design style, tone, or customer actions should the website support?"
+                    ),
+                },
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["answer"] == "I can help refine that into a website direction."
+    assert provider.histories[0][-1] == ChatTurn(
+        role="assistant",
+        content="What features, design style, tone, or customer actions should the website support?",
+    )
+
+
+def test_query_history_accepts_recent_message_limit(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     provider = RecordingChatProvider()
@@ -180,7 +262,7 @@ def test_query_history_is_capped_to_recent_messages(
     _upload_company_document(client, b"Acme provides web apps, AI assistants, and automation services.")
     history = [
         {"role": "user" if index % 2 == 0 else "assistant", "content": f"message {index}"}
-        for index in range(14)
+        for index in range(12)
     ]
 
     response = client.post(
@@ -189,11 +271,10 @@ def test_query_history_is_capped_to_recent_messages(
     )
 
     assert response.status_code == 200
-    assert [turn.content for turn in provider.histories[0]] == [f"message {index}" for index in range(2, 14)]
+    assert [turn.content for turn in provider.histories[0]] == [f"message {index}" for index in range(12)]
     prompt_lines = provider.prompts[0].splitlines()
-    assert "User: message 0" not in prompt_lines
-    assert "Assistant: message 1" not in prompt_lines
-    assert "Assistant: message 13" in prompt_lines
+    assert "User: message 0" in prompt_lines
+    assert "Assistant: message 11" in prompt_lines
 
 
 def test_stream_query_passes_prior_conversation(
@@ -234,14 +315,19 @@ def test_rag_prompt_guides_customer_facing_company_responses(
 
     assert response.status_code == 200
     prompt = provider.prompts[0]
-    assert "You are a customer-facing company assistant" in prompt
+    assert "You are a customer-facing company overview assistant" in prompt
     assert "helpful, cheerful, and professional" in prompt
-    assert "explain how the company may help with their project" in prompt
+    assert "give prospective customers a clear overview of the company" in prompt
+    assert "its members or team when available in the company knowledge" in prompt
+    assert "connect the company's relevant services to the project at a high level" in prompt
     assert "stay within the retrieved context" in prompt
     assert "Do not invent services, experience, prices, timelines, guarantees, or contact details" in prompt
     assert "Use the retrieved context as internal company knowledge" in prompt
     assert "Do not mention sources, documents, chunks, retrieved context, or file names" in prompt
     assert "Do not say the user provided the company knowledge" in prompt
+    assert "treat the user's reply as in-scope project context" in prompt
+    assert "Do not run an extended discovery or sales-closing conversation" in prompt
+    assert "encourage the user to contact the team for tailored advice" in prompt
 
 
 @pytest.mark.parametrize(
@@ -300,6 +386,19 @@ def test_off_topic_stream_returns_customer_scope_refusal_without_calling_llm(
 
     assert "".join(chunks) == query_service.OFF_TOPIC_RESPONSE
     assert provider.prompts == []
+
+
+def test_stream_provider_failure_returns_safe_customer_message(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(query_service, "get_chat_provider", lambda _settings=None: FailingStreamChatProvider())
+    _upload_company_document(client, b"Acme develops web apps and workflow automation.")
+
+    response = client.post("/query/stream", json={"query": "What services does Acme offer?", "top_k": 1})
+
+    assert response.status_code == 200
+    assert response.text == query_service.STREAM_ERROR_RESPONSE
+    assert "upstream unavailable" not in response.text
 
 
 def test_llm_provider_failure_returns_controlled_error(

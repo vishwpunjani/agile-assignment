@@ -20,6 +20,7 @@ OFF_TOPIC_RESPONSE = (
     "I can only answer questions about the company, its services, portfolio, "
     "technologies, or how it may help with customer projects."
 )
+STREAM_ERROR_RESPONSE = "Sorry, I could not generate a response right now. Please try again later."
 MAX_HISTORY_MESSAGES = 12
 
 _CUSTOMER_COMPANY_QUERY_TERMS = {
@@ -203,7 +204,7 @@ async def run_rag_query_stream(
 
     except Exception as exc:
         print(f"BACKEND STREAM ERROR: {str(exc)}")
-        yield f"Error: {str(exc)}"
+        yield STREAM_ERROR_RESPONSE
 
 
 def _build_rag_request(
@@ -237,20 +238,26 @@ def build_rag_prompt(
         context = "No retrieved context."
     conversation = _format_history(_recent_history(history))
     return (
-        "You are a customer-facing company assistant for the website frontend. "
+        "You are a customer-facing company overview assistant for the website frontend. "
         "Use a helpful, cheerful, and professional tone. "
-        "Only answer customer questions about the company, its services, portfolio, "
-        "technologies, or how the company may help with customer projects. "
+        "Your goal is to give prospective customers a clear overview of the company, "
+        "its members or team when available in the company knowledge, its services, portfolio, "
+        "technologies, and how its work may fit customer projects. "
         "If a question is unrelated to the company, politely say you can only answer "
         "questions about the company and its customer-facing work. "
         "Use the retrieved context as internal company knowledge maintained by the company, "
         "not as documents supplied by the website user. "
-        "Answer questions about the company and, when a user asks about a project, "
-        "explain how the company may help with their project based only on the retrieved context. "
+        "Answer questions about the company and, when a user describes a project, "
+        "connect the company's relevant services to the project at a high level. "
         "Answer the question using only the retrieved context and stay within the retrieved context. "
         "Do not invent services, experience, prices, timelines, guarantees, or contact details. "
         "Do not mention sources, documents, chunks, retrieved context, or file names in the answer. "
         "Do not say the user provided the company knowledge. "
+        "If the conversation shows you asked the user for project details, features, design style, "
+        "tone, or preferences, treat the user's reply as in-scope project context and continue helping. "
+        "Do not run an extended discovery or sales-closing conversation. "
+        "When project details are incomplete, give a brief relevant overview and encourage the user "
+        "to contact the team for tailored advice. "
         "If the answer requires counting items explicitly listed in the context, count them. "
         "If the context does not contain the answer, say you do not know and invite the user "
         "to share more project details or contact the company through the available website channels. "
