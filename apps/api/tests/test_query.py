@@ -316,6 +316,9 @@ def test_rag_prompt_guides_customer_facing_company_responses(
     assert response.status_code == 200
     prompt = provider.prompts[0]
     assert "You are a customer-facing company overview assistant" in prompt
+    assert "You are an AI assistant, not a company employee" in prompt
+    assert "Do not claim to be part of the company" in prompt
+    assert "not contacting you" in prompt
     assert "helpful, cheerful, and professional" in prompt
     assert "give prospective customers a clear overview of the company" in prompt
     assert "its members or team when available in the company knowledge" in prompt
