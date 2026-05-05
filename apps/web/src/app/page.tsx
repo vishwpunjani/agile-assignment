@@ -3,6 +3,7 @@
 import type { DragEvent } from "react";
 import { useCallback, useEffect, useState } from "react";
 import CopyTextButton from "@/components/CopyTextButton";
+import MarkdownResponse from "@/components/MarkdownResponse";
 import MessageInput from "@/components/MessageInput";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
@@ -22,11 +23,9 @@ export default function Home() {
   const [isRetrying, setIsRetrying] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
-  const [statusVariant, setStatusVariant] = useState<"info" | "success" | "error">("info");
   const [isListening, setIsListening] = useState(false);
   const [message, setMessage] = useState("");
   const [completion, setCompletion] = useState("");
-  const statusClassName = statusVariant === "error" ? "text-red-600" : "text-green-600";
 
   const sendQuery = useCallback(async (query: string, mode: "send" | "retry") => {
     setIsRetrying(mode === "retry");
@@ -53,10 +52,7 @@ export default function Home() {
         const chunk = decoder.decode(value, { stream: true });
         setCompletion((prev) => prev + chunk);
       }
-      setStatusVariant("success");
-      setStatusMessage("Message processed.");
     } catch (error) {
-      setStatusVariant("error");
       setStatusMessage(error instanceof Error ? error.message : "An error occurred.");
     } finally {
       setIsRetrying(false);
@@ -146,9 +142,7 @@ export default function Home() {
                 <span>AI is thinking...</span>
               </div>
             ) : completion ? (
-              <div className="prose prose-blue max-w-none text-gray-700 leading-relaxed">
-                {completion}
-              </div>
+              <MarkdownResponse content={completion} />
             ) : (
               <div className="h-full flex items-center justify-center text-gray-300 italic text-sm">
                 Waiting for your question...
@@ -170,7 +164,7 @@ export default function Home() {
           />
           
           {statusMessage && (
-            <div className={`text-center text-sm font-medium ${statusClassName}`}>
+            <div className="text-center text-sm font-medium text-red-600">
               {statusMessage}
             </div>
           )}
