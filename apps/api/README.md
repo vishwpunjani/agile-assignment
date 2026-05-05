@@ -41,12 +41,20 @@ Replaces the document used by the API with a newly uploaded file. The new docume
 
 ### `POST /query` - Query indexed company document
 
-Retrieves the highest-ranked chunks from the active company document, builds a context-only RAG prompt, and returns the generated model answer with source identifiers.
-The endpoint is currently single-turn only: it does not accept a conversation ID, store chat history, or use previous turns when answering follow-up questions.
+Retrieves the highest-ranked chunks from the active company document, builds a company-overview RAG prompt, and returns the generated customer-facing answer. The prompt treats retrieved text as internal company knowledge, not as user-visible sources.
+
+The endpoint accepts recent chat history from the client for follow-up context. The API does not store conversations server-side.
 
 **Request:**
 ```json
-{ "query": "What does the company do?", "top_k": 5 }
+{
+  "query": "What does the company do?",
+  "top_k": 5,
+  "history": [
+    { "role": "user", "content": "What services do you offer?" },
+    { "role": "assistant", "content": "..." }
+  ]
+}
 ```
 
 **Success response `200`:**
@@ -54,7 +62,11 @@ The endpoint is currently single-turn only: it does not accept a conversation ID
 { "answer": "...", "sources": ["company.txt#0"] }
 ```
 
-**Error responses:** `400` (no loaded document / empty query), `502` (LLM provider failure)
+The `sources` field is retained for API consumers and debugging, but the website UI should not show source identifiers to customers.
+
+**Validation:** `query` is limited to 1,000 characters, `history` to 12 messages, and each history message to 2,000 characters.
+
+**Error responses:** `400` (no loaded document / empty query), `422` (invalid request shape or oversized input), `502` (LLM provider failure)
 
 ## Vector Store
 

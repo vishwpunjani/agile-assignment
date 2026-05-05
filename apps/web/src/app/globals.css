@@ -419,6 +419,72 @@ body {
   justify-content: center;
 }
 
+.markdown-response {
+  max-width: 100%;
+  color: #374151;
+  font-size: 1rem;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.markdown-response > * + * {
+  margin-top: 0.85rem;
+}
+
+.markdown-response p {
+  margin: 0;
+}
+
+.markdown-response strong {
+  font-weight: 700;
+  color: inherit;
+}
+
+.markdown-response em {
+  font-style: italic;
+}
+
+.markdown-response ul,
+.markdown-response ol {
+  margin: 0;
+  padding-left: 1.35rem;
+}
+
+.markdown-response ul {
+  list-style: disc;
+}
+
+.markdown-response ol {
+  list-style: decimal;
+}
+
+.markdown-response li + li {
+  margin-top: 0.35rem;
+}
+
+.markdown-response li > p {
+  display: inline;
+}
+
+.markdown-response a {
+  color: #2563eb;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.markdown-response a:hover {
+  color: #1d4ed8;
+}
+
+.markdown-response code {
+  border-radius: 6px;
+  background: #f1f5f9;
+  color: #0f172a;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 0.92em;
+  padding: 0.12rem 0.32rem;
+}
+
 .admin-header-controls {
   margin-left: auto;
   display: flex;
