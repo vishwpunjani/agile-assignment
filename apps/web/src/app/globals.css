@@ -32,7 +32,21 @@ body {
   background: #ffffff;
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
 }
+.company-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 
+.company-logo-img {
+  object-fit: contain;
+}
+
+.company-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: #111827;
+}
 .app-content {
   min-height: 100vh;
 }
@@ -224,11 +238,11 @@ body {
 }
 
 .message-composer {
-  width: min(100%, 700px);
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: end;
-  gap: 12px;
+  width: 100%;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   padding: 12px 16px;
   border: 1.5px solid #e5e7eb;
   border-radius: 18px;
@@ -236,27 +250,34 @@ body {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 
+.input-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100px;
+}
 .message-textarea {
-  min-height: 36px;
+  width: 100%;
+  flex: 1;
+  min-height: 40px;
   max-height: 200px;
   resize: none;
   border: none;
   outline: none;
   font: inherit;
   line-height: 1.5;
-  color: #374151;
+ color: #111827;;
   background: transparent;
-  padding: 6px 0;
+  font-size: 14px;
 }
-
 .message-textarea::placeholder {
   color: #64748b;
 }
-
 .composer-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .hint-text {
@@ -692,13 +713,10 @@ body {
   font-size: 0.875rem;
   color: #b91c1c;
 }
-
 .media-selection-wrapper {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-width: 28px;
 }
 
 .media-dropdown-container {
@@ -710,7 +728,8 @@ body {
   background: none;
   border: none;
   cursor: pointer;
-  font-size: 20px;
+  font-size: 18px;
+  font-weight: 500;
   color: #6b7280;
   display: flex;
   align-items: center;
@@ -735,17 +754,19 @@ body {
 
 .media-dropdown {
   position: absolute;
-  bottom: calc(100% + 10px);
+  bottom: calc(100% + 10px); /* 👈 OPEN UPWARDS */
   left: 0;
-  z-index: 20;
+  z-index: 999; /* 👈 VERY IMPORTANT */
   min-width: 200px;
   background: #ffffff;
   border: 1px solid #e5e7eb;
   border-radius: 14px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
   padding: 6px;
-  list-style: none;
-  animation: media-dropdown-in 0.12s ease;
+}
+.media-dropdown-container {
+  position: relative;
+  z-index: 9999;
 }
 
 @keyframes media-dropdown-in {
@@ -762,11 +783,13 @@ body {
   font-size: 15px;
   color: #111827;
   cursor: pointer;
-  transition: background 0.1s;
+  transition: all 0.15s ease;
 }
 
+
 .media-dropdown-item:hover {
-  background: #f3f4f6;
+  background: #f1f5f9;
+  transform: translateX(2px);
 }
 
 .media-item-icon {
@@ -837,9 +860,21 @@ body {
   }
 
   .message-composer {
-    grid-template-columns: auto minmax(0, 1fr);
-    align-items: center;
-  }
+  width: 100%;             
+  display: flex;            
+  align-items: center;
+  gap: 12px;
+
+  padding: 12px 16px;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 18px;
+  background: #ffffff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.message-textarea {
+  flex: 1;
+}
 
   .prompt-suggestions {
     justify-content: flex-start;
@@ -869,7 +904,7 @@ body {
   }
 }
 
-/* ── Loading Animation ── */
+
 .loading-wrapper {
   width: min(100%, 700px);
   display: flex;
@@ -943,4 +978,21 @@ body {
 .new-chat-btn:active {
   transform: scale(0.97);
   background: #4338ca;
+}
+
+.company-logo img {
+  width: 40px;
+  height: 40px;
+}
+
+@media (max-width: 640px) {
+  .company-logo img {
+    width: 32px;
+    height: 32px;
+  }
+}
+
+.message-textarea {
+  color: #000 !important;
+  opacity: 1 !important;
 }

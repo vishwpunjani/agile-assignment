@@ -6,8 +6,10 @@ import CopyTextButton from "@/components/CopyTextButton";
 import MessageInput from "@/components/MessageInput";
 import LoadingAnimation from "@/components/LoadingAnimation";
 import NewChatButton from "@/components/NewChatButton";
+import CompanyLogo from "@/components/CompanyLogo";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
 const SUGGESTIONS = [
   "What services does the company offer?",
@@ -28,53 +30,102 @@ export default function Home() {
   const [completion, setCompletion] = useState("");
   const [chatKey, setChatKey] = useState(0);
 
-  const sendQuery = useCallback(async (query: string, mode: "send" | "retry") => {
-    setIsRetrying(mode === "retry");
-    setIsSending(true);
-    setCompletion("");
-    setStatusMessage(null);
+  const [messages, setMessages] = useState<
+    { role: "user" | "ai"; text: string }[]
+  >([]);
 
-    try {
-      const response = await fetch(`${API_BASE_URL}/query/stream`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query, top_k: 5 }),
-      });
+  const [isChatMode, setIsChatMode] = useState(false);
 
-      if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+  const sendQuery = useCallback(
+    async (query: string, mode: "send" | "retry") => {
+      setIsRetrying(mode === "retry");
+      setIsSending(true);
+      setCompletion("");
+      setStatusMessage(null);
 
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
-      if (!reader) throw new Error("Response body is null");
+      try {
+        const response = await fetch(`${API_BASE_URL}/query/stream`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query, top_k: 5 }),
+        });
 
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-        setCompletion((prev) => prev + chunk);
+        if (!response.ok)
+          throw new Error(`${response.status} ${response.statusText}`);
+
+        const reader = response.body?.getReader();
+        const decoder = new TextDecoder();
+        if (!reader) throw new Error("Response body is null");
+
+        let aiText = "";
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          const chunk = decoder.decode(value, { stream: true });
+          aiText += chunk;
+          setCompletion((prev) => prev + chunk);
+
+          // update AI message live
+          setMessages((prev) => {
+            const updated = [...prev];
+            const last = updated[updated.length - 1];
+
+            if (last && last.role === "ai") {
+              last.text = aiText;
+            } else {
+              updated.push({ role: "ai", text: aiText });
+            }
+
+            return [...updated];
+          });
+        }
+
+        setStatusMessage("Message processed.");
+      } catch (error) {
+        setStatusMessage(
+          error instanceof Error ? error.message : "An error occurred."
+        );
+      } finally {
+        setIsRetrying(false);
+        setIsSending(false);
       }
-      setStatusMessage("Message processed.");
-    } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : "An error occurred.");
-    } finally {
-      setIsRetrying(false);
-      setIsSending(false);
-    }
-  }, []);
+    },
+    []
+  );
 
-  const handleMessageSent = useCallback((event: Event) => {
-    const detail = (event as CustomEvent<string>).detail;
-    if (!detail) return;
-    setLastQuery(detail);
-    void sendQuery(detail, "send");
-  }, [sendQuery]);
+  // ✅ FIX 1 — enable chat mode + store user message
+  const handleMessageSent = useCallback(
+    (event: Event) => {
+      const detail = (event as CustomEvent<string>).detail;
+      if (!detail) return;
+
+      setIsChatMode(true);
+
+      setMessages((prev) => [
+        ...prev,
+        { role: "user", text: detail },
+      ]);
+
+      setLastQuery(detail);
+      void sendQuery(detail, "send");
+    },
+    [sendQuery]
+  );
 
   useEffect(() => {
-    window.addEventListener("messageSent", handleMessageSent as EventListener);
-    return () => window.removeEventListener("messageSent", handleMessageSent as EventListener);
+    window.addEventListener(
+      "messageSent",
+      handleMessageSent as EventListener
+    );
+    return () =>
+      window.removeEventListener(
+        "messageSent",
+        handleMessageSent as EventListener
+      );
   }, [handleMessageSent]);
 
-  // New Chat handler — resets everything
+  // ✅ reset also resets chat mode
   const handleNewChat = () => {
     setCompletion("");
     setStatusMessage(null);
@@ -85,7 +136,11 @@ export default function Home() {
     setIsDragging(false);
     setDragCounter(0);
     setChatKey((prev) => prev + 1);
+    setMessages([]);
+    setIsChatMode(false);
+
     window.dispatchEvent(new CustomEvent("newChat"));
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const handleDragEnter = (e: DragEvent<HTMLDivElement>) => {
@@ -107,7 +162,6 @@ export default function Home() {
 
   return (
     <>
-      {/* New Chat Button — fixed top left */}
       <div className="fixed top-4 left-4 z-50">
         <NewChatButton onNewChat={handleNewChat} />
       </div>
@@ -115,82 +169,130 @@ export default function Home() {
       <main className="min-h-screen bg-[#F9FAFB] flex flex-col items-center py-12 px-4">
         <div className="w-full max-w-4xl flex flex-col gap-8">
 
-          {/* 1. Header & Dropzone */}
+          {/* HEADER */}
           <div
             onDragEnter={handleDragEnter}
             onDragLeave={handleDragLeave}
             onDragOver={(e) => e.preventDefault()}
             onDrop={handleDrop}
-            className={`relative border-2 border-dashed rounded-2xl p-10 transition-all text-center ${
-              isDragging ? "border-blue-500 bg-blue-50" : "border-gray-200 bg-white"
+            className={`relative border-2 border-dashed rounded-2xl p-10 text-center ${
+              isDragging
+                ? "border-blue-500 bg-blue-50"
+                : "border-gray-200 bg-white"
             }`}
           >
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">Ask anything</h1>
-            <p className="text-gray-500">Drop a file here or use the input below</p>
+            <div className="flex flex-col items-center gap-3 mb-2">
+              <div className="flex items-center gap-3">
+                <CompanyLogo />
+              </div>
+            </div>
+
+            <h1 className="text-3xl font-bold text-gray-900">
+              Ask anything
+            </h1>
+
+            <p className="text-gray-500">
+              Drop a file here or use the input below
+            </p>
           </div>
 
-          {/* 2. Suggestions */}
+          {/* SUGGESTIONS */}
           <div className="flex flex-wrap justify-center gap-2">
             {SUGGESTIONS.map((s) => (
               <button
                 key={s}
                 onClick={() => setMessage(s)}
-                className="px-4 py-2 bg-white border border-gray-200 rounded-full text-sm text-gray-600 hover:border-blue-400 hover:text-blue-600 transition-colors shadow-sm"
+                className="px-4 py-2 bg-white border border-gray-200 rounded-full text-sm text-gray-600 hover:border-blue-400 hover:text-blue-600 shadow-sm"
               >
                 {s}
               </button>
             ))}
           </div>
 
-          {/* 3. AI Response Box */}
-          <div className="bg-white border border-gray-200 rounded-2xl shadow-sm min-h-[250px] flex flex-col relative overflow-hidden">
-            <div className="px-6 py-3 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
-              <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">AI Response</span>
+          {/* AI RESPONSE BOX */}
+          <div className="bg-white border border-gray-200 rounded-2xl shadow-sm min-h-[250px] flex flex-col">
+            <div className="px-6 py-3 border-b bg-gray-50/50 flex justify-between">
+              <span className="text-xs font-bold text-gray-400 uppercase">
+                AI Response
+              </span>
               {completion && !isSending && (
-                <div className="scale-90 transform-gpu origin-right">
-                  <CopyTextButton textToCopy={completion} />
-                </div>
+                <CopyTextButton textToCopy={completion} />
               )}
             </div>
 
             <div className="p-8 flex-1">
-              {completion ? (
-                <div className="prose prose-blue max-w-none text-gray-700 leading-relaxed">
-                  {completion}
-                </div>
-              ) : (
-                <div className="h-full flex items-center justify-center text-gray-300 italic text-sm">
-                  Waiting for your question...
-                </div>
-              )}
+              {completion || "Waiting for your question..."}
             </div>
           </div>
 
-          {/* 4. Loading Animation */}
+          {/* ✅ FIX 2 — CHAT BUBBLES */}
+          {isChatMode && (
+            <div className="mt-4 flex flex-col gap-3 max-h-[300px] overflow-y-auto">
+              {messages.map((msg, i) => (
+                <div
+                  key={i}
+                  className={`flex ${
+                    msg.role === "user"
+                      ? "justify-end"
+                      : "justify-start"
+                  }`}
+                >
+                  <div
+                     className={`max-w-[75%] px-4 py-3 rounded-2xl text-sm leading-relaxed break-words whitespace-pre-wrap ${
+                     msg.role === "user"
+                     ? "bg-blue-500 text-white"
+                        : "bg-gray-200 text-gray-800"
+                      }`}
+                  >
+                    {msg.text}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
           <LoadingAnimation isLoading={isSending} />
 
-          {/* 5. Input Area */}
-          <div className="flex flex-col gap-3 w-full max-w-4xl mx-auto">
-            <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
-              <MessageInput
-                key={chatKey}
-                message={message}
-                onMessageChange={setMessage}
-                isListening={isListening}
-                setIsListening={setIsListening}
-                canRetry={Boolean(lastQuery) && !isSending}
-                isRetrying={isRetrying}
-                onRetry={() => sendQuery(lastQuery!, "retry")}
-              />
-            </div>
-
-            {statusMessage && (
-              <div className="text-center text-sm font-medium text-green-600">
-                {statusMessage}
+          {/* ✅ FIX 3 — INPUT SWITCH */}
+          {!isChatMode && (
+            <div className="flex flex-col gap-3 w-full max-w-4xl mx-auto">
+              <div className="bg-white rounded-2xl shadow-lg border">
+                <MessageInput
+                  key={chatKey}
+                  message={message}
+                  onMessageChange={setMessage}
+                  isListening={isListening}
+                  setIsListening={setIsListening}
+                  canRetry={Boolean(lastQuery) && !isSending}
+                  isRetrying={isRetrying}
+                  onRetry={() => sendQuery(lastQuery!, "retry")}
+                />
               </div>
-            )}
-          </div>
+            </div>
+          )}
 
+        {isChatMode && (
+  <div className="fixed bottom-4 left-1/2 -translate-x-1/2 w-full max-w-4xl px-4">
+    <div className="bg-white rounded-2xl shadow-lg border border-gray-200">
+                <MessageInput
+                  key={chatKey}
+                  message={message}
+                  onMessageChange={setMessage}
+                  isListening={isListening}
+                  setIsListening={setIsListening}
+                  canRetry={Boolean(lastQuery) && !isSending}
+                  isRetrying={isRetrying}
+                  onRetry={() => sendQuery(lastQuery!, "retry")}
+                />
+              </div>
+            </div>
+          )}
+
+          {statusMessage && (
+            <div className="text-center text-sm text-green-600">
+              {statusMessage}
+            </div>
+          )}
         </div>
       </main>
     </>
