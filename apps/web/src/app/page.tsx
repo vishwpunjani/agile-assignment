@@ -4,8 +4,8 @@ import type { DragEvent } from "react";
 import { useCallback, useEffect, useState } from "react";
 import CopyTextButton from "@/components/CopyTextButton";
 import MessageInput from "@/components/MessageInput";
-import LoadingAnimation from "@/components/LoadingAnimation";
-import NewChatButton from "@/components/NewChatButton";
+import LoadingAnimation from "../components/LoadingAnimation";
+import NewChatButton from "../components/NewChatButton";
 import CompanyLogo from "@/components/CompanyLogo";
 
 const API_BASE_URL =
